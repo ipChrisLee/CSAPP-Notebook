@@ -1,3 +1,31 @@
+# `Useful Note`
+
+Here are some useful notes, such as 'size of C data types in x86-84'. 
+
+## `About instruction`
+
+### `Sizes of C data types in x86-84`
+
+<img src="ref/截屏2021-12-28 11.04.59.png" style="zoom:50%;" />
+
+
+
+### `Integer registers`
+
+<img src="ref/截屏2021-12-28 11.06.07.png" style="zoom:50%;" />
+
+
+
+### `Operand Forms`
+
+<img src="ref/截屏2021-12-28 10.59.36.png" style="zoom:50%;" />
+
+
+
+### 
+
+
+
 # `Program Encodings`
 
 ## `How a .o file generated?`
@@ -29,4 +57,6 @@ But from .c file to .o file, there are many procedures that we should focus on. 
    ```shell
    gcc -C test.i -o test.o
    ```
+
+
 
