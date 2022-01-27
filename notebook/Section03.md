@@ -22,8 +22,6 @@ Here are some useful notes, such as 'size of C data types in x86-84'.
 
 
 
-### 
-
 
 
 # `Program Encodings`
@@ -60,3 +58,52 @@ But from .c file to .o file, there are many procedures that we should focus on. 
 
 
 
+# `instructions`
+
+Here are lists of instructions seperated by instruction classes memtioned in CSAPP.
+
+## `mov` class
+
+<img src="ref/截屏2022-01-18 16.25.09.png" style="zoom:50%;" />
+
+If the destination of movl is a register, the high 32 bits of the register would be set to 0. So in fact, 'movl \$0, %edx' has same effect as 'movq \$0, %rdx'.
+
+
+
+## `movz` class
+
+zero extension
+
+<img src="ref/截屏2022-01-18 16.25.23.png" style="zoom:50%;" />
+
+
+
+## `movs` class
+
+sign extension
+
+<img src="ref/截屏2022-01-18 16.25.35.png" style="zoom:50%;" />
+
+
+
+## stack related instructions
+
+<img src="ref/截屏2022-01-18 16.25.53.png" style="zoom:50%;" />
+
+
+
+## arithmetic instructions
+
+<img src="ref/截屏2022-01-18 16.26.05.png" style="zoom:50%;" />
+
+The instructions listed above are 'instrucion class' in fact, except 'leaq' instruction. For example, to left shift %cl, which is 8 bit length,  with 4 bits, you should use 'salb %cl,4'. 
+
+Except 'leaq' instruction, which will not change ANY condition codes, the instructions above will set condition codes (CF,ZF,SF,OF).
+
+For the logical operations, the CF and OF are set to zero, the ZF is set iff the result is 0, the SF is set iff the highest bit of result is 1.
+
+
+
+## mul and div instructions
+
+<img src="ref/截屏2022-01-18 16.26.29.png" style="zoom:50%;" />
