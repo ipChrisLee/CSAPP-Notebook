@@ -102,8 +102,43 @@ Except 'leaq' instruction, which will not change ANY condition codes, the instru
 
 For the logical operations, the CF and OF are set to zero, the ZF is set iff the result is 0, the SF is set iff the highest bit of result is 1.
 
+For the shift operations, the CF is set to the last bit shifted out, while the OF is set to zero, the ZF and SF perform same to logical case.
+
+The INC and DEC set the OF, ZF and SF, but leave the CF unchanged.
+
+
+
+The SUB here means the two-complement subtraction. 
+
 
 
 ## mul and div instructions
 
 <img src="ref/截屏2022-01-18 16.26.29.png" style="zoom:50%;" />
+
+
+
+## comparision and test instructions
+
+<img src="ref/截屏2022-02-05 17.45.38.png" style="zoom:50%;" />
+
+The CMP instructions behave in the same way as the SUB instructions, except that they set the condition codes without updating their destinations.
+
+The TEST instructions behave in the same way as the ADD instructions, except that they set the condition codes without updating their destinations.
+
+
+
+## set instructions
+
+<img src="ref/截屏2022-02-05 17.55.19.png" style="zoom:50%;" />
+
+A SET instruction has either one of **the low-order single-byte register elements** or **a single-byte memory location** as its destination.
+
+So to generate a 32-bit or 64-bit result, we must also clear the high-order bits.
+
+
+
+## jump instructions
+
+<img src="ref/截屏2022-02-05 18.49.43.png" style="zoom:50%;" />
+
