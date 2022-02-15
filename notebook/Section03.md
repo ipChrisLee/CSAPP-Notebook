@@ -14,6 +14,8 @@ Here are some useful notes, such as 'size of C data types in x86-84'.
 
 ### Integer Registers
 
+Or 'general-purpose' registers.
+
 <img src="ref/截屏2021-12-28 11.06.07.png" style="zoom:50%;" />
 
 `%rbx`, `%rbp` and `%r12-%r15` (six registers in sum)are classified as **callee-saved** registers. The callee MUST preserve the values of these registers, which means, they have the same value when callee ends and returns to caller as when callee is called.Ohter registers, except `%rsp`, are classified as **caller-saved** registers, since is caller's duty to save the values of these registers.
@@ -43,6 +45,12 @@ With x86-64, up to six integral arguments can be passed via registers. The regis
 <img src="ref/截屏2021-12-28 10.59.36.png" style="zoom:50%;" />
 
 `$Imm` use decimal number.
+
+
+
+## Stack Frame Diagram
+
+<img src="ref/截屏2022-02-15 10.04.10.png" style="zoom:50%;" />
 
 
 
@@ -132,6 +140,8 @@ For the shift operations, the CF is set to the last bit shifted out, while the O
 
 The INC and DEC set the OF, ZF and SF, but leave the CF unchanged.
 
+For integer operations, PF (parity flag) is set when the most recent arithmetic or logical operation yielded a value where the least significant byte has evev parity. (i.e. an even number of ones in the byte)  
+
 
 
 ## mul and div instructions
@@ -168,7 +178,7 @@ When the instruction `cmp $1,$2` followed by `jg J`, if `$2<$1`, it will jump to
 
 
 
-# conditional move instructions
+## conditional move instructions
 
 Conditional transfer of data.
 
@@ -187,4 +197,141 @@ The bit wide is implicit. But single-byte conditional moves are not supported.
 When P calls Q, `call` will pushes an address A onto the stack and sets the PC to the beginning of Q. A is referred to as the `return address` and is computerd as the address of the instruction immediately following the `call` instruction.
 
 The `ret` instruction will pop an address A off the stack and sets the PC to A.
+
+
+
+## `leave` instruction and Variable-Size stack frame
+
+`leave` instruction has no argument, and it is equivalent to executing the following two instructions:
+
+<img src="ref/截屏2022-02-13 11.37.38.png" style="zoom:50%;" />
+
+Remind that: `%rbp` is a **callee-saved** register, and it is the **base pointer** when the stack frame is of variable size!
+
+For example: if there is an array, whose size is decided by a variable, inside function F, the stack frame of F is of variable size. The first instruction of the machine code of F will be `pushq %rbp`, and the last two instructions will be `leave` and `ret`. Inside the machine code of F, we can 
+
+
+
+# `AVX2` and floating-point code
+
+## Registers
+
+<img src="ref/截屏2022-02-14 08.03.32.png" style="zoom:50%;" />
+
+Up to eight floating-point arguments can be passed in XMM register. Additional floating-point arguments can be passed on the stack.
+
+ALL the XMM registers are caller saved.
+
+
+
+## movement and conversion operation
+
+### movement
+
+<img src="ref/截屏2022-02-14 08.06.22.png" style="zoom:50%;" />
+
+`X` is XMM registers. `M` is memory range.
+
+These instructions will work correctly regardless of the alignment of data (so although `M32` is not the multiple of 4, `vmovss` will still word correctly), but the guidelines recommand that.
+
+
+
+### convertion from floating-point to integer
+
+<img src="ref/截屏2022-02-14 08.12.10.png" style="zoom:50%;" />
+
+When converting from floating-point to integer, these instruction will perform **truncation**, rounding values toward zero, as is required by C.
+
+
+
+### convertion from integer to floating-point
+
+<img src="ref/截屏2022-02-14 08.24.14.png" style="zoom:50%;" />
+
+The `Source2` is always same to `Destination`. The converted floating-point will be stored in the low-order bytes of XMM register.
+
+
+
+### convertion from two different floating-float
+
+#### from single-precision to double-precision
+
+There is an instruction to do this: `vcvtss2sd`. `vcvtss2sd %xmm0, %xmm0, %xmm0` can convert the signle-precision value stored in `%xmm0` to double-precision.
+
+But Gcc do this by two instrcutions: (the annotation will explain what instctions did)
+
+```assembly
+								# %xxm0=[x3,x2,x1,x0]
+vunpcklps %xmm0, %xmm0, %xmm0	# %xxm0=[x1,x1,x0,x0]
+vcvtps2pd %xmm0, %xmm0			# %xxm0=[dx0,dx0]
+```
+
+So the net effect of the instructions is to store two copies of convertion result in XMM register.
+
+
+
+#### from double-precision to single-precision
+
+There is an instruction to do this: `vcvtsd2ss`. `vcvtsd2ss %xmm0, %xmm0, %xmm0` can convert the signle-precision value stored in `%xmm0` to double-precision.
+
+But Gcc do this by two instrcutions: (the annotation will explain what instctions did)
+
+```assembly
+								# %xxm0=[dx1,dx0]
+vmovddup %xmm0, %xmm0, %xmm0	# %xxm0=[dx0,dx0]
+vcvtpd2ps %xmm0, %xmm0			# %xxm0=[0,0,x0,x0]
+```
+
+So the net effect of the instructions is to store two copies of convertion result in XMM register.
+
+
+
+## Arithmetic operations
+
+<img src="ref/截屏2022-02-14 09.14.38.png" style="zoom:50%;" />
+
+The first source operand `S1` can be either an XMM register or a memory location. (but cannot be general registers)
+
+The second source operand `S2` and the destination operand MUST be XMM registers.
+
+
+
+## Bitwise operations
+
+<img src="ref/截屏2022-02-14 09.40.19.png" style="zoom:50%;" />
+
+These instructions are all packed instructions, which means they will update the whole XMM register.
+
+
+
+## Comparision options
+
+### comparision
+
+<img src="ref/截屏2022-02-14 10.38.01.png" style="zoom:50%;" />
+
+`S1` can be either an XMM register or a membory location. (but cannot be general registers)
+
+<img src="ref/截屏2022-02-14 10.42.04.png" style="zoom:50%;" />
+
+The unoreded case occurs when either operand is NaN.
+
+
+
+### jump wich flags
+
+`jp` ('jump on parity') instruction is used to canditionally jump when a floating-point comparision yields an unordered result.
+
+The values of the carry and zero flags are the same as those for an unsigned comparision, except when `jp` is set.
+
+See table:
+
+| instruction | synonym | description           |
+| ----------- | ------- | --------------------- |
+| `je`        | `jz`    | Equal                 |
+| `jne`       | `jnz`   | Not Equal             |
+| `ja`        | `jnbe`  | Above (`>`)           |
+| `jae`       | `jnb`   | Above or Equal (`>=`) |
+| `jb`        | `jnae`  | Below (`<`)           |
+| `jbe`       | `jna`   | Below or Equal (`<=`) |
 
