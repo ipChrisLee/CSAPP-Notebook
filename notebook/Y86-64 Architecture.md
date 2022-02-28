@@ -90,7 +90,7 @@ Y86-64 has limited address range, and any access to an address beyond the limit 
 
 
 
-# Hardware Control Language HCL
+# Hardware Control Language HCL and Hardware Structure of Y86-64
 
 ## info
 
@@ -208,7 +208,7 @@ To notice that, because of hardware design, we can't directly move data from `va
 
 <img src="ref_Y86-64/截屏2022-02-18 09.54.12.png" style="zoom:50%;" />
 
-app
+
 
 #### `pushq` and `popq`
 
@@ -220,6 +220,8 @@ app
 
 <img src="ref_Y86-64/截屏2022-02-18 09.55.41.png" style="zoom:50%;" />
 
+
+
 ### State Elements
 
 There are four state elements: program counter, condition code regiseter, register file, and data memory.
@@ -230,7 +232,7 @@ There are four state elements: program counter, condition code regiseter, regist
 
 ### Detailed view
 
-<img src="ref_Y86-64/截屏2022-02-18 11.18.53.png" style="zoom:50%;" />
+<img src="ref_Y86-64/截屏2022-02-18 11.18.53.png" style="zoom:40%;" />
 
 * Clocked registers are shown as white rectangles.
 
@@ -295,7 +297,23 @@ So, in conclusion, we may think the six states of instruction is coming one by o
 
 
 
+## Detailed hardware structure and HCL description of SEQ
 
+### Fetch Stage
 
+Detailed hardware structure:
 
+<img src="ref_Y86-64/截屏2022-02-18 12.58.43.png" style="zoom:50%;" />
+
+HCL description and notes: (the content in `<>` is pseudocode)
+
+```verilog
+bool instr_valid = <
+	icode is invalid : 1;
+    icode is not invalid : 0;
+>
+bool need_regids = icode in {IRRMOVQ, }
+```
+
+Align unit
 
