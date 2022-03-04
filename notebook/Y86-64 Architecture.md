@@ -56,6 +56,8 @@ Notice for some instructions:
 
   `cmovle`, `cmovl`, `cmove`, `cmovne`, `cmovge`, `cmovg`
 
+* **`comvXX` has SAME `icode` as `movq`!** The diff between them is `ifun`.
+
 * So Y86-64 only supports **signed comparision**!
 
 * `halt` causes the processor top stop, with status code set to `HLT`
@@ -228,6 +230,8 @@ There are four state elements: program counter, condition code regiseter, regist
 
 
 
+# SEQ
+
 ## Hardware structure of SEQ
 
 ### Detailed view
@@ -305,6 +309,14 @@ Detailed hardware structure:
 
 <img src="ref_Y86-64/截屏2022-02-18 12.58.43.png" style="zoom:50%;" />
 
+#### Split Unit and Signals
+
+The byte addressed by PC is called 'instruction byte', which will be splitted into `icode` and `ifun`.
+
+If `imem_error` occurs, when instruction address is not valid, `icode` and `ifun` equals the byte value of `nop` instruction.
+
+`icode` will set `instr_valid` if instruction is invalid (Q: Why needn't consider `ifun`), set `need_regids` if instruction needs register, set `need_valC` if instruction includes a constant value.
+
 HCL description and notes: (the content in `<>` is pseudocode)
 
 ```verilog
@@ -312,8 +324,290 @@ bool instr_valid = <
 	icode is invalid : 1;
     icode is not invalid : 0;
 >
-bool need_regids = icode in {IRRMOVQ, }
+bool need_regids = icode in {IRRMOVQ, IOPQ, IPUSHQ, IPOPQ, IIRMOVQ, IRMMOVQ, IMRMOVQ}
+bool need_valC = icode in {IIRMOVQ, IRMMOVQ, IMRMOVQ, IJXX, ICALL}
 ```
 
-Align unit
+
+
+#### Align Unit and Signals
+
+The `align` unit will output `valC`, according to `need_regids` signal. If `need_regids` is set, `align` will set `valC` to bytes 2-9. If `need_regids` is not set, `align` will set `valC` to bytes 1-8.
+
+`rA` and `rB` are always set to the second byte of instruction, even if the instruction doesn't need register. Remind that if either `rA` or `rB` is not used by an instruction, the corrsponding half byte will set to 0xF, which means there is  no register in register file. For the instruction which needs no registers, the `rA` and `rB` will be set to the second byte, but will not affect the result because of the signal of `icode`, which we will talk about later.
+
+
+
+#### PC increment
+
+If PC equals `p` now, the generated PC value `valP` equals `p + 1 + need_regids + 8*need_valC `
+
+
+
+### Decode and Write-Back Stages
+
+Detailed hardware structure:
+
+<img src="ref_Y86-64/截屏2022-03-01 08.46.33.png" style="zoom:50%;" />
+
+#### Ports and Register Address
+
+`register file` has two simultaneous reads and two simultaneous writes. (Remind: the read ports read from register file without considering the edge signal, and write ports write into registers only when rising edge occurs)
+
+`srcA` and `srcB` are addresses for `valA` and `valB`. `dstE` and `dstM` are addresses for `valM` and `valE`. 
+
+If we conclude decode and write back stages, `valE` is always related to `rB`, and `valM` is always related to `rA`. So we connect `dstE` with `rB` and `dstM` with `rA`. 
+
+The `rA` and `rB` are not always needed for instruction. If such instruction doesn't need registers at all, `rA` and `rB` are meaningless value, and we shouldn't read from such register addresses. At this time, `icode` will make its sense.
+
+```verilog
+word srcA = [
+    icode in {IRRMOVQ, IRMMOVQ, IOPQ, IPUSHQ, ICMOVXX} : rA;  // At these time, we need value stored in rA
+    icode in {IPOPQ, IRET} : RRSP;  // At these time, we need value stored in %rsp.
+    1 : RNONE;  // i.e. 0xF
+] // NOTE: ICMOVXX has SAME icode as IRRMOVQ, and so it is considered into this HCL code.
+```
+
+Notice that, `rA` of `popq rA` is the address of the word read from memory, so `srcA` is not `rA` in this case.
+
+```verilog
+word srcB = [
+    icode in {IRMMOVQ, IMRMOVQ, IOPQ} : rB;
+    icode in {IRET, IPUSHQ, IPOPQ, ICALL} : RRSP;
+    1 : RNONE;
+]
+```
+
+`dstE` is the address of `valE`, and `valE` is always written into `rB`, so `dstE` is always:
+
+```verilog
+word dstE = [
+    icode in {IRRMOVQ} && cnd : rB; 
+    // cnd is generated in execute stage, and only if cnd is true, dstE equals rB.
+    // Instruction cmovxx has same icode as movq, and the difference between them is the ifun.
+    // They have identical instruction code IRRMOVQ!
+    // Signal cnd will be generated according to ifun and cc. When ifun equals 0, cnd equals 1, and thus movq will execute correctly.
+    icode in {IIRMOVQ, IOPQ} : rB;
+    icode in {IPUSHQ, IPOPQ, ICALL, IRET} : RRSP;
+    1 : RNONE;
+]
+```
+
+`dstM` is the address of `valM`, and `valM` is always written into `rA`, so `dstM` is always:
+
+```verilog
+word dstM = [
+    icode in {IMRMOVQ, IPOPQ} : rA;
+    1 : RNONE;
+]
+```
+
+
+
+Simultaneous writting will cause conflict when the dest registers are same. `popq %rsp` is the only instruction faces this conflict. And to solve this conflict, we give higher priority to port `valM` than that to port `valE`, which meets the fact that `popq %rsp` will increase `%rsp` first and then set `%rsp` to value read from memory.
+
+
+
+### Execute Stage
+
+<img src="ref_Y86-64/截屏2022-03-01 10.17.43.png" style="zoom:50%;" />
+
+ALU (i.e. arithmetic/logic unit) performs caculation on inputs `aluA` and `aluB` based on `alufun` signal, resulting the output signal `valE`.
+
+Concluding from the sequences of instructions, we can find that `aluA` can be `valA`, `valC`, `+8` or `-8`:
+
+```verilog
+word aluA = [
+	icode in {IRRMOVQ, IOPQ} : valA;
+    icode in {IIRMOVQ, IRMMOVQ, IMRMOVQ} : valC;
+    icode in {ICALL, IPUSHQ} : -8;
+    icode in {IRET, IPOPQ} : 8;  // Other instructions don’t need ALU.
+]
+```
+
+`aluB` can be `valB` or `0`.
+
+```verilog
+word aluB = [
+    icode in {IOPQ, IRMMOVQ, IMRMOVQ, IPUSHQ, IPOPQ, ICAL IRET} : valB;
+    icode in {IRRMOVQ, IIRMOVQ} : 0;
+]
+```
+
+`alufun` is `ifun` when `icode` is `IOPQ`, and `ALUADD` for other cases.
+
+```verilog
+word alufun = [
+    icode == IOPQ : ifun;
+    1 : ALUADD;
+]
+```
+
+We only set conditional flags when executing `IOPQ` instructions, so:
+
+```verilog
+bool set_cc = icode in {IOPQ};
+```
+
+
+
+### Memory Stage
+
+<img src="ref_Y86-64/截屏2022-03-01 10.43.03.png" style="zoom:50%;" />
+
+```verilog
+word mem_addr = [
+    icode in {IRMMOVQ, IPUSHQ, ICALL, IMRMOVQ} : valE;
+    icode in {IPOPQ, IRET} : valA;
+    // Other instructions don’t need address
+]
+word mem_data = [
+    icode in {IRMMOVQ, IPUSHQ} : valA;
+    icode in {ICALL} : valP;
+    // Other instructions don’t write anything.
+]
+bool mem_read = icode in {IMRMOVQ, IPOPQ, IRET};
+bool mem_write = icode in {IRMMOVQ, IPUSHQ, ICALL};
+word stat = [
+    imem_error || dmem_error : SADR;  // address exception
+    !instr_valid : SINS; // illegal instruction exception
+    icode == == IHALT : SHLT; // halt
+    1 : SAOK; // normal
+] // Q: How to decide priority here?
+```
+
+
+
+### PC Update Stage
+
+<img src="ref_Y86-64/截屏2022-03-01 10.53.43.png" style="zoom:50%;" />
+
+```verilog
+word new_pc = [
+	// Call. Use instruction constant
+    icode == ICALL : valC; 
+    // Taken branch. Use instruction constant
+    icode == IJXX && Cnd : valC; 
+    // Completion of RET instruction. Use value from stack
+    icode == IRET : valM; 
+    // Default: Use incremented PC
+    1 : valP;
+];
+```
+
+
+
+# SEQ+
+
+## intro
+
+### circuit retiming
+
+Retiming changes the state representation for a system without changing its logical behavior.
+
+In our changing of SEQ to SEQ+, we move PC-update stage to the most beginning of the clock cycle. And we remove PC register in SEQ+, which is neeadless because now PC is generated by a logical circuit.
+
+
+
+### hardware structure
+
+<img src="ref_Y86-64/截屏2022-03-02 09.14.27.png" style="zoom:50%;" />
+
+
+
+# PIPE-
+
+## hardware structure
+
+<img src="ref_Y86-64/截屏2022-03-02 09.16.46.png" style="zoom:50%;" />
+
+(This structure doesn't need PC register neither.)
+
+### intro
+
+Here we have five stages: F, D, E, M and W. Every blue box indicates pipeline registers for every stage.
+
+The signals named as `X_reg` are signals stored in a pipeline register `reg` which is before `X` stage. The signals named as `y_reg` are signals computed within stage `y`.
+
+### diff from SEQ+
+
+#### `Select A`
+
+We merge signal `valA` with `valP`. Only `call` and `jxx` need `valP` after decode stage, but neither of them need `valA` to store the value read from register file. 
+
+This unit eliminates the need for `Data` block in SEQ and SEQ+ since they have same similar purpose.
+
+#### branch prediction `Predict PC`
+
+For pipeline system, because of **control dependencies**, we need to determine which instruction to execute next before the previous instruction finishes executing. 
+
+The stragegy we use here is **always taken(AT)**, and learn about other branch prediction strategies in CS:APP page 428. AT means we always take the branch one to execute. For example, `valC` is considered as next `PC` for `call` and `jxx`, and `valP` is considered as next `PC` for other instructions (For `ret` instruction, although there is practical technique for return address prediction, we will not attempt to predict any value.).
+
+
+
+## hazards
+
+### Data Hazards caused by Data Dependency
+
+Our pipeline system design above can't handle problems of data dependency at all. And here we will try to solve this problem. 
+
+Notice that, according to the aside in CS:APP P435, we only need to deal with register data harzards.
+
+Two solutions:
+
+#### by Stalling
+
+See figure:
+
+<img src="ref_Y86-64/截屏2022-03-02 10.44.05.png" style="zoom:50%;" />
+
+Three `bubble` 'instructions' is injected before `addq` instruction. Every `bubble` is injected by suspended `addq` instruction which is stalled in D stage. 
+
+Note: the instructions after stalled instruction will be stalled too.
+
+The `bubble` takes corresponding effect as `nop` instruction.
+
+
+
+#### by Forwarding: PIPE
+
+The hardware structure of PIPE:
+
+<img src="ref_Y86-64/截屏2022-03-02 11.43.36.png" style="zoom:50%;" />
+
+The key units are `Sel+Fwd A` and `Fwd B`. See figure:
+
+<img src="ref_Y86-64/截屏2022-03-02 11.47.01.png" style="zoom:50%;" />
+
+`addq` instruction can get value directly from `M_valE` and `e_valE`, which means `addq` doesn't need to be stalled for write-back of `irmovq`!
+
+
+
+#### by load interlock: Fix load/use data hazard
+
+<img src="ref_Y86-64/截屏2022-03-02 11.52.19.png" style="zoom:50%;" />
+
+Because memory stage is behind execute stage and address `valE` of load is calculated by ALU in execute stage, the instruction followed load instruction should be stalled until the execute stage of load instruction finishes and get register value then.
+
+
+
+### Control Hazards caused by Control Dependency
+
+Our pipeline system design will face problems when prediction of PC is incorrect, which may happen when executing `ret` and `jxx` instructions.
+
+So we can just solve this issue calssified by instruction:
+
+Case of `ret`:
+
+<img src="ref_Y86-64/截屏2022-03-02 12.08.38.png" style="zoom:50%;" />
+
+Case of `jxx`:
+
+<img src="ref_Y86-64/截屏2022-03-02 12.08.52.png" style="zoom:50%;" />
+
+NOTICE: `jxx` decide if the branch is taken in execute stage by updating `cnd` signal. So we can judge if the predection is correct just after the execute stage of `jxx`.
+
+
+
+
 
